@@ -1,0 +1,21 @@
+{
+  "name": "blockchain-crowdfunding-hardhat",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:localhost": "hardhat run scripts/deploy.js --network localhost"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.17"
+  },
+  "dependencies": {
+    "ethereumjs-util": "^7.1.5",
+    "ethereumjs-vm": "^4.2.0",
+    "ganache": "^7.9.2",
+    "node-emoji": "^2.2.0"
+  }
+}

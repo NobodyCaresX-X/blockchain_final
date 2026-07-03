@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>登录 - 区块链众筹系统</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+</head>
+<body>
+  <div class="bg-orb bg-orb-a"></div>
+  <div class="bg-orb bg-orb-b"></div>
+
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-logo">⛓️</span>
+      <a href="/">区块链众筹</a>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">首页</a>
+      <a href="/projects" class="nav-link">项目列表</a>
+      <a href="/create" class="nav-link">创建项目</a>
+      <a href="/my" class="nav-link">我的参与</a>
+    </div>
+  </nav>
+
+  <main class="page">
+    <section class="page-header">
+      <h1>用户登录</h1>
+      <p class="lead">登录您的账户，开始参与区块链众筹</p>
+    </section>
+
+    <div class="form-container login-form-container">
+      <form id="loginForm" class="create-form">
+        <div class="form-group">
+          <label>用户名 *</label>
+          <input name="username" type="text" placeholder="例如：user01" required>
+          <small>内置账户：user01 ~ user10，密码均为 123456</small>
+        </div>
+        <div class="form-group">
+          <label>密码 *</label>
+          <input name="password" type="password" placeholder="请输入密码" required>
+        </div>
+        <div class="form-section form-actions">
+          <button type="submit" class="btn-primary btn-large">登录</button>
+          <a href="/register" class="btn-secondary">注册新账户</a>
+        </div>
+      </form>
+
+      <div class="divider">
+        <span>或者</span>
+      </div>
+
+      <button id="metamaskLoginBtn" class="btn-metamask" onclick="loginWithMetamask()">
+        🦊 使用Metamask登录
+      </button>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      
+      try {
+        const response = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: form.username.value,
+            password: form.password.value
+          })
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.detail || "登录失败");
+        }
+        
+        const result = await response.json();
+        localStorage.setItem("authToken", result.token);
+        localStorage.setItem("currentUser", JSON.stringify(result.user));
+        
+        alert("登录成功！");
+        window.location.href = "/projects";
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+
+    async function loginWithMetamask() {
+      try {
+        console.log("[DEBUG] 开始Metamask登录");
+        
+        const connected = await connectMetamask();
+        if (!connected) {
+          console.log("[DEBUG] Metamask连接失败");
+          return;
+        }
+        
+        console.log("[DEBUG] Metamask地址:", state.metamaskAddress);
+        
+        const nonceResponse = await fetch("/api/metamask/nonce", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: state.metamaskAddress })
+        });
+        
+        if (!nonceResponse.ok) {
+          const data = await nonceResponse.json();
+          throw new Error(data.detail || "获取随机数失败");
+        }
+        
+        const nonce = await nonceResponse.json();
+        console.log("[DEBUG] 获取到nonce:", nonce);
+        
+        const message = `请签名以登录区块链众筹系统\n地址: ${state.metamaskAddress}\n随机数: ${nonce.nonce}\n时间戳: ${nonce.timestamp}`;
+        console.log("[DEBUG] 签名消息:", message);
+        
+        const signature = await signMessage(message);
+        console.log("[DEBUG] 签名结果:", signature);
+        
+        const response = await fetch("/api/login/metamask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: state.metamaskAddress,
+            signature: signature
+          })
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          console.error("[DEBUG] 登录失败:", data);
+          throw new Error(data.detail || "Metamask登录失败");
+        }
+        
+        const result = await response.json();
+        console.log("[DEBUG] 登录成功:", result);
+        
+        localStorage.setItem("authToken", result.token);
+        localStorage.setItem("currentUser", JSON.stringify(result.user));
+        
+        alert("Metamask登录成功！");
+        window.location.href = "/projects";
+      } catch (error) {
+        console.error("[DEBUG] Metamask登录错误:", error);
+        alert(error.message);
+      }
+    }
+  </script>
+</body>
+</html>

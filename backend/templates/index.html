@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>区块链众筹系统</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+</head>
+<body>
+  <div class="bg-orb bg-orb-a"></div>
+  <div class="bg-orb bg-orb-b"></div>
+
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-logo">⛓️</span>
+      <span>区块链众筹</span>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link" data-page="home">首页</a>
+      <a href="/projects" class="nav-link" data-page="projects">项目列表</a>
+      <a href="/create" class="nav-link" data-page="create">创建项目</a>
+      <a href="/my" class="nav-link" data-page="my">我的参与</a>
+    </div>
+    <div class="nav-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">连接中...</span>
+    </div>
+    <div class="nav-user" id="userInfo">
+      <a href="/login" class="btn-secondary btn-sm">登录</a>
+      <a href="/register" class="btn-primary btn-sm">注册</a>
+    </div>
+  </nav>
+
+  <!-- 首页内容 -->
+  <main class="page" id="page-home">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Blockchain Crowdfunding</p>
+        <h1>基于区块链的众筹系统</h1>
+        <p class="lead">
+          安全、透明、不可篡改的众筹平台。基于以太坊智能合约，支持项目创建、捐赠、里程碑管理和资金提取。
+        </p>
+      </div>
+      <div class="status-card" id="bootstrapCard">
+        <div class="status-chip" id="statusChip">Loading</div>
+        <h2>系统状态</h2>
+        <dl>
+          <div><dt>运行模式</dt><dd id="rpcUrl">-</dd></div>
+          <div><dt>合约地址</dt><dd id="contractAddress">-</dd></div>
+          <div><dt>可用账户</dt><dd id="accountCount">-</dd></div>
+          <div><dt>项目总数</dt><dd id="projectCount">-</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="quick-actions">
+      <a href="/create" class="action-card">
+        <span class="action-icon">📝</span>
+        <h3>创建项目</h3>
+        <p>发起新的众筹项目</p>
+      </a>
+      <a href="/projects" class="action-card">
+        <span class="action-icon">🎯</span>
+        <h3>浏览项目</h3>
+        <p>查看所有众筹项目</p>
+      </a>
+      <a href="/my" class="action-card">
+        <span class="action-icon">👤</span>
+        <h3>我的参与</h3>
+        <p>查看捐赠记录</p>
+      </a>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h3>最新项目</h3>
+        <a href="/projects" class="link-btn">查看全部 →</a>
+      </div>
+      <div id="recentProjects" class="projects"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    // 首页初始化
+    initHomePage();
+  </script>
+</body>
+</html>

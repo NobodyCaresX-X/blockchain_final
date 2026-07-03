@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>注册 - 区块链众筹系统</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+</head>
+<body>
+  <div class="bg-orb bg-orb-a"></div>
+  <div class="bg-orb bg-orb-b"></div>
+
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-logo">⛓️</span>
+      <a href="/">区块链众筹</a>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">首页</a>
+      <a href="/projects" class="nav-link">项目列表</a>
+      <a href="/create" class="nav-link">创建项目</a>
+      <a href="/my" class="nav-link">我的参与</a>
+    </div>
+  </nav>
+
+  <main class="page">
+    <section class="page-header">
+      <h1>注册新账户</h1>
+      <p class="lead">创建您的账户，加入区块链众筹社区</p>
+    </section>
+
+    <div class="form-container login-form-container">
+      <form id="registerForm" class="create-form">
+        <div class="form-group">
+          <label>用户名 *</label>
+          <input name="username" type="text" placeholder="请输入用户名" required>
+          <small>用户名将作为您的登录凭证</small>
+        </div>
+        <div class="form-group">
+          <label>密码 *</label>
+          <input name="password" type="password" placeholder="请输入密码" required>
+          <small>建议使用安全强度较高的密码</small>
+        </div>
+        <div class="form-group">
+          <label>昵称</label>
+          <input name="nickname" type="text" placeholder="显示名称（可选）">
+          <small>将在系统中显示的名称</small>
+        </div>
+        <div class="form-section form-actions">
+          <button type="submit" class="btn-primary btn-large">注册</button>
+          <a href="/login" class="btn-secondary">返回登录</a>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    document.getElementById("registerForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      
+      try {
+        const response = await fetch("/api/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: form.username.value,
+            password: form.password.value,
+            nickname: form.nickname.value
+          })
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.detail || "注册失败");
+        }
+        
+        const result = await response.json();
+        alert(`注册成功！用户名：${result.user.username}\n请登录您的账户`);
+        window.location.href = "/login";
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  </script>
+</body>
+</html>

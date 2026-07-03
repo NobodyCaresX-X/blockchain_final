@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的参与 - 区块链众筹系统</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+</head>
+<body>
+  <div class="bg-orb bg-orb-a"></div>
+  <div class="bg-orb bg-orb-b"></div>
+
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-logo">⛓️</span>
+      <a href="/">区块链众筹</a>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">首页</a>
+      <a href="/projects" class="nav-link">项目列表</a>
+      <a href="/create" class="nav-link">创建项目</a>
+      <a href="/my" class="nav-link active">我的参与</a>
+    </div>
+    <div class="nav-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">连接中...</span>
+    </div>
+    <div class="nav-user" id="userInfo">
+      <a href="/login" class="btn-secondary btn-sm">登录</a>
+      <a href="/register" class="btn-primary btn-sm">注册</a>
+    </div>
+  </nav>
+
+  <!-- 我的参与页 -->
+  <main class="page">
+    <section class="page-header">
+      <h1>我的参与</h1>
+      <p class="lead">查看您创建的项目和捐赠记录</p>
+    </section>
+
+    <!-- 我创建的项目 -->
+    <section class="panel">
+      <div class="section-head">
+        <h3>🏗️ 我创建的项目</h3>
+      </div>
+      <div id="myProjects" class="projects">
+        <div class="empty-state">您还没有创建项目</div>
+      </div>
+    </section>
+
+    <!-- 我的捐赠 -->
+    <section class="panel">
+      <div class="section-head">
+        <h3>💝 我的捐赠</h3>
+      </div>
+      <div id="myDonations" class="donations-list">
+        <div class="empty-state">您还没有捐赠</div>
+      </div>
+    </section>
+
+    <!-- 可退款项目 -->
+    <section class="panel">
+      <div class="section-head">
+        <h3>↩️ 可退款项目</h3>
+        <small>筹款失败的项目，捐赠者可申请退款</small>
+      </div>
+      <div id="refundProjects" class="projects">
+        <div class="empty-state">无待退款项目</div>
+      </div>
+    </section>
+
+    <!-- 交易记录 -->
+    <section class="panel">
+      <div class="section-head">
+        <h3>📜 交易记录</h3>
+        <small>查看您的所有链上交易</small>
+      </div>
+      <div id="myTransactions" class="transactions-list">
+        <div class="empty-state">加载中...</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 操作模态框 -->
+  <div class="modal" id="actionModal">
+    <div class="modal-content modal-small">
+      <button class="modal-close" onclick="closeActionModal()">×</button>
+      <div id="actionModalContent"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>
+    initMyPage();
+  </script>
+</body>
+</html>

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>钱包管理 - 区块链众筹系统</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+</head>
+<body>
+  <div class="bg-orb bg-orb-a"></div>
+  <div class="bg-orb bg-orb-b"></div>
+
+  <!-- 导航栏 -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="nav-logo">⛓️</span>
+      <a href="/">区块链众筹</a>
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">首页</a>
+      <a href="/projects" class="nav-link">项目列表</a>
+      <a href="/create" class="nav-link">创建项目</a>
+      <a href="/my" class="nav-link">我的参与</a>
+      <a href="/wallet" class="nav-link active">钱包管理</a>
+    </div>
+    <div class="nav-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">连接中...</span>
+    </div>
+    <div class="nav-user" id="userInfo">
+      <a href="/login" class="btn-secondary btn-sm">登录</a>
+      <a href="/register" class="btn-primary btn-sm">注册</a>
+    </div>
+  </nav>
+
+  <!-- 钱包管理页 -->
+  <main class="page">
+    <section class="page-header">
+      <h1>钱包管理</h1>
+      <p class="lead">管理您的区块链钱包</p>
+    </section>
+
+    <!-- Metamask连接 -->
+    <div class="metamask-section">
+      <button id="metamaskBtn" class="btn-metamask" onclick="connectMetamask()">
+        🔌 连接Metamask
+      </button>
+      <div id="metamaskAddressDisplay" style="display: none; margin-top: 1rem;">
+        <p>📡 Metamask地址：<span id="connectedAddress"></span></p>
+        <button id="linkMetamaskBtn" class="btn-primary btn-sm" onclick="linkMetamask()">关联此地址</button>
+      </div>
+    </div>
+
+    <!-- 钱包余额 -->
+    <div class="wallet-balance">
+      <div class="balance-card">
+        <h3>💰 区块链余额</h3>
+        <div class="balance-amount" id="walletBalance">0.00 ETH</div>
+        <p class="balance-desc">您的Metamask钱包余额</p>
+        <p class="balance-desc">合约地址：<span id="contractAddress" style="font-family: monospace; font-size: 0.8em;">-</span></p>
+      </div>
+    </div>
+
+    <!-- 交易记录 -->
+    <div class="wallet-content">
+      <h3>� 最近交易</h3>
+      <div id="transactionHistory">
+        <p style="text-align: center; color: #666;">加载交易记录中...</p>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    async function updateWalletDisplay() {
+      try {
+        if (state.web3 && state.metamaskAddress) {
+          const balanceWei = await state.web3.eth.getBalance(state.metamaskAddress);
+          const balanceEth = state.web3.utils.fromWei(balanceWei, 'ether');
+          document.getElementById('walletBalance').textContent = `${parseFloat(balanceEth).toFixed(4)} ETH`;
+        }
+        
+        if (state.contractAddress) {
+          document.getElementById('contractAddress').textContent = state.contractAddress;
+        }
+      } catch (error) {
+        console.error('更新钱包显示失败:', error);
+      }
+    }
+
+    async function loadTransactionHistory() {
+      try {
+        if (!state.web3 || !state.metamaskAddress) {
+          document.getElementById('transactionHistory').innerHTML = '<p style="text-align: center; color: #666;">请先连接Metamask</p>';
+          return;
+        }
+
+        const blockNumber = await state.web3.eth.getBlockNumber();
+        const transactions = [];
+        
+        for (let i = 0; i < 10 && blockNumber - i >= 0; i++) {
+          const block = await state.web3.eth.getBlock(blockNumber - i, true);
+          if (block && block.transactions) {
+            for (const tx of block.transactions) {
+              if (tx.from.toLowerCase() === state.metamaskAddress.toLowerCase() ||
+                  tx.to && tx.to.toLowerCase() === state.metamaskAddress.toLowerCase()) {
+                transactions.push({
+                  hash: tx.hash,
+                  from: tx.from,
+                  to: tx.to || '合约创建',
+                  value: state.web3.utils.fromWei(tx.value, 'ether'),
+                  blockNumber: blockNumber - i,
+                  timestamp: (await state.web3.eth.getBlock(blockNumber - i)).timestamp
+                });
+              }
+            }
+          }
+        }
+
+        if (transactions.length === 0) {
+          document.getElementById('transactionHistory').innerHTML = '<p style="text-align: center; color: #666;">暂无交易记录</p>';
+        } else {
+          let html = '<table class="transaction-table">';
+          html += '<thead><tr><th>交易哈希</th><th>发送方</th><th>接收方</th><th>金额</th><th>区块</th></tr></thead>';
+          html += '<tbody>';
+          transactions.slice(0, 5).forEach(tx => {
+            html += `<tr>
+              <td>${tx.hash.slice(0, 10)}...</td>
+              <td>${tx.from.slice(0, 10)}...</td>
+              <td>${tx.to.slice(0, 10)}...</td>
+              <td>${parseFloat(tx.value).toFixed(4)} ETH</td>
+              <td>#${tx.blockNumber}</td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          document.getElementById('transactionHistory').innerHTML = html;
+        }
+      } catch (error) {
+        console.error('加载交易记录失败:', error);
+        document.getElementById('transactionHistory').innerHTML = '<p style="text-align: center; color: #666;">加载失败</p>';
+      }
+    }
+
+    async function linkMetamask() {
+      if (!state.metamaskAddress) {
+        alert('请先连接Metamask');
+        return;
+      }
+      
+      if (!confirm(`确认关联Metamask地址 ${state.metamaskAddress} 吗？`)) return;
+      
+      try {
+        const token = localStorage.getItem('authToken');
+        const response = await fetch('/api/metamask/link', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ address: state.metamaskAddress })
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.detail || '关联失败');
+        }
+        
+        const result = await response.json();
+        alert(result.message);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    const originalConnectMetamask = connectMetamask;
+    connectMetamask = async function() {
+      const result = await originalConnectMetamask();
+      if (result) {
+        document.getElementById('metamaskAddressDisplay').style.display = 'block';
+        document.getElementById('connectedAddress').textContent = state.metamaskAddress;
+        updateWalletDisplay();
+        loadTransactionHistory();
+      }
+      return result;
+    };
+
+    async function initWalletPage() {
+      await initCommon();
+      if (!state.currentUser) {
+        alert('请先登录！');
+        window.location.href = '/login';
+        return;
+      }
+      updateWalletDisplay();
+      loadTransactionHistory();
+    }
+
+    initWalletPage();
+  </script>
+</body>
+</html>

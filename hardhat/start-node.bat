@@ -1,0 +1,1 @@
+node node_modules/hardhat/bin/hardhat.js node
