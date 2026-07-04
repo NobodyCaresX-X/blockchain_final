@@ -4,6 +4,7 @@ import time
 import subprocess
 import webbrowser
 import shutil
+import threading
 
 
 def print_banner():
@@ -15,6 +16,14 @@ def print_banner():
 
 def print_step(step, total, text):
     print(f"[{step}/{total}] {text}")
+
+
+def start_heartbeat(stop_event):
+    last_tick = time.time()
+    while not stop_event.wait(5):
+        if time.time() - last_tick >= 30:
+            print("   [running] Services are still active; press Ctrl+C to stop.", flush=True)
+            last_tick = time.time()
 
 
 def run_command(cmd, cwd=None, capture_output=False):
@@ -311,16 +320,25 @@ def main():
     print("   Test Account Private Key (first one):")
     print("     0xac0974bec39a17e36ba4a6b4d238ff948bacb478cbed5efcae784d7bf4f2ff80")
     print("")
+    print("   Status: launcher is now keeping Hardhat and backend alive.")
+    print("   Status: the browser is ready for testing.")
     print("   Press Ctrl+C to stop all services")
     print("=" * 70 + "\n")
+
+    stop_event = threading.Event()
+    heartbeat_thread = threading.Thread(target=start_heartbeat, args=(stop_event,), daemon=True)
+    heartbeat_thread.start()
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nStopping services...")
+        stop_event.set()
         backend_proc.terminate()
         hardhat_proc.terminate()
+        backend_proc.wait(timeout=10)
+        hardhat_proc.wait(timeout=10)
         print("All services stopped")
 
 
