@@ -116,6 +116,7 @@ contract Crowdfunding {
     mapping(uint256 => Project) private projects;
     mapping(uint256 => address[]) private projectDonors;
     mapping(uint256 => mapping(address => uint256)) private donations;
+    mapping(uint256 => mapping(address => bool)) private donatedRefunded;
     mapping(uint256 => mapping(address => bool)) private earlySupporters;
     mapping(uint256 => mapping(address => bool)) private monthlySupporters; // 细水长流标签
     mapping(uint256 => Stage[]) private projectStages;
@@ -268,6 +269,13 @@ contract Crowdfunding {
         _updateRewardBackers(projectId, project.pledged);
 
         emit DonationReceived(projectId, donor, amount, project.pledged);
+
+        // 如果没有设置里程碑且达到目标，立即结束项目
+        // 阶段点和月度支持不影响项目结束时机，只有里程碑才会让项目继续运行
+        uint256 rewardCount = projectRewards[projectId].length;
+        if (rewardCount == 0 && project.pledged >= project.goal && !project.ended) {
+            _finishProjectImmediately(projectId, donor);
+        }
     }
 
     function _updateRewardBackers(uint256 projectId, uint256 currentPledged) private {
@@ -276,6 +284,61 @@ contract Crowdfunding {
             if (currentPledged >= rewards[i].fundingThreshold) {
                 rewards[i].backersCount += 1;
             }
+        }
+    }
+
+    function _finishProjectImmediately(uint256 projectId, address lastDonor) private {
+        Project storage project = projects[projectId];
+        
+        project.ended = true;
+        project.status = ProjectStatus.Successful;
+
+        // 计算溢出金额
+        uint256 excessAmount = project.pledged - project.goal;
+
+        // 如果有溢出金额，退还给触发完成的捐赠者
+        if (excessAmount > 0 && project.balance >= excessAmount) {
+            project.balance -= excessAmount;
+            project.totalRefunded += excessAmount;
+            
+            (bool success, ) = payable(lastDonor).call{value: excessAmount}("");
+            require(success, "excess refund failed");
+            
+            emit DonationRefunded(projectId, lastDonor, excessAmount);
+        }
+
+        // 成功项目：结算并全额打款
+        _settleSuccessfulProject(projectId);
+
+        emit ProjectFinished(projectId, project.status, project.pledged, project.goal);
+    }
+
+    // 成功项目统一结算逻辑：阶段点默认完成，全额打款给发起者
+    function _settleSuccessfulProject(uint256 projectId) private {
+        Project storage project = projects[projectId];
+
+        // 所有阶段点默认视为已完成、已释放（不执行分批留款）
+        if (project.hasStages) {
+            Stage[] storage stages = projectStages[projectId];
+            for (uint256 i = 0; i < stages.length; i++) {
+                stages[i].completed = true;
+                stages[i].released = true;
+                emit StageCompleted(projectId, i);
+                emit StageReleased(projectId, i, 0);
+            }
+        }
+
+        // 一次性全额打款给发起者
+        uint256 amount = project.balance;
+        if (amount > 0) {
+            project.balance = 0;
+            project.creatorWithdrawn = true;
+            project.totalWithdrawn += amount;
+            
+            (bool success, ) = payable(project.creator).call{value: amount}("");
+            require(success, "auto withdraw failed");
+            
+            emit CreatorWithdrawal(projectId, project.creator, amount);
         }
     }
 
@@ -354,9 +417,7 @@ contract Crowdfunding {
                     
                     if (project.pledged >= project.goal) {
                         project.status = ProjectStatus.Successful;
-                        if (project.hasStages) {
-                            _calculateProportionalRelease(i);
-                        }
+                        _settleSuccessfulProject(i);
                     } else {
                         project.status = ProjectStatus.Failed;
                         if (project.hasStages) {
@@ -384,10 +445,7 @@ contract Crowdfunding {
 
         if (project.pledged >= project.goal) {
             project.status = ProjectStatus.Successful;
-            // 如果开启了阶段点，按比例计算可发放金额
-            if (project.hasStages) {
-                _calculateProportionalRelease(projectId);
-            }
+            _settleSuccessfulProject(projectId);
         } else {
             project.status = ProjectStatus.Failed;
             // 如果开启了阶段点，按比例退还已发放部分
@@ -473,6 +531,7 @@ contract Crowdfunding {
 
         uint256 donationAmount = donations[projectId][msg.sender];
         require(donationAmount > 0, "nothing to refund");
+        require(!donatedRefunded[projectId][msg.sender], "already refunded");
 
         // 计算可退款比例
         // 已释放的阶段点资金基于目标金额
@@ -493,9 +552,9 @@ contract Crowdfunding {
         require(refundAmount > 0, "nothing to refund after stage release");
         require(project.balance >= refundAmount, "insufficient project balance");
 
-        donations[projectId][msg.sender] = 0;
         project.totalRefunded += refundAmount;
         project.balance -= refundAmount;
+        donatedRefunded[projectId][msg.sender] = true;
 
         (bool success, ) = payable(msg.sender).call{value: refundAmount}("");
         require(success, "refund failed");
@@ -512,7 +571,7 @@ contract Crowdfunding {
 
     function releaseStageFunds(uint256 projectId, uint256 stageIndex) external projectExists(projectId) onlyCreator(projectId) {
         Project storage project = projects[projectId];
-        require(project.status == ProjectStatus.Active || project.status == ProjectStatus.Successful || project.status == ProjectStatus.Failed, "project not active or successful");
+        require(project.status == ProjectStatus.Active || project.status == ProjectStatus.Failed, "can only release in active or failed state");
 
         Stage storage stage = projectStages[projectId][stageIndex];
         require(stage.completed, "stage not completed");

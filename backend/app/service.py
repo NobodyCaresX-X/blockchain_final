@@ -116,18 +116,44 @@ class CrowdfundingService:
             self.ready = True
 
     def _sync_chain_time(self) -> None:
-        """同步链上时间与系统时间，确保时间一致"""
+        """同步链上时间与系统时间（初始化时调用）
+        
+        只用 evm_mine 出块，不用 evm_increaseTime（避免时间超前问题）
+        - 链上时间落后系统时间：evm_mine 自动用系统时间出块
+        - 链上时间超前系统时间：无法调整（Hardhat不支持回拨）
+        """
         chain_time = self.w3.eth.get_block('latest').timestamp
         system_time = int(datetime.now(tz=timezone.utc).timestamp())
-        time_diff = system_time - chain_time
+        time_diff = chain_time - system_time  # 正数=链上超前，负数=链上落后
         
-        if time_diff > 1:
-            self.w3.provider.make_request("evm_increaseTime", [time_diff])
+        if time_diff < -5:
+            # 链上时间落后系统时间，调用 evm_mine 追上系统时间
             self.w3.provider.make_request("evm_mine", [])
             new_chain_time = self.w3.eth.get_block('latest').timestamp
-            print(f"[TIME_SYNC] 链上时间已同步: 链上{chain_time} -> 现在{new_chain_time} (目标{system_time})")
-        elif time_diff < -300:
-            print(f"[TIME_SYNC] 链上时间比系统时间快{abs(time_diff)}秒，无法向后调整")
+            print(f"[TIME_SYNC] 初始化同步: 链上{chain_time} -> {new_chain_time} (误差{new_chain_time - system_time}秒)")
+        elif time_diff > 60:
+            print(f"[TIME_SYNC] 警告：链上时间超前系统时间{time_diff}秒，Hardhat无法回拨")
+
+    def _ensure_chain_time_updated(self) -> None:
+        """交易前同步链上时间与系统时间
+        
+        同步策略（基于Hardhat节点特性）：
+        - 只用 evm_mine 出块，Hardhat会自动使用 max(上一区块+1, 系统时间) 作为新区块时间戳
+        - 链上时间落后系统时间：调用 evm_mine 追上系统时间
+        - 链上时间超前系统时间：无法调整（Hardhat不支持回拨）
+        - 误差阈值：30秒
+        """
+        chain_time = self.w3.eth.get_block('latest').timestamp
+        system_time = int(datetime.now(tz=timezone.utc).timestamp())
+        time_diff = chain_time - system_time  # 正数=链上超前，负数=链上落后
+        
+        # 链上时间落后系统时间超过30秒，调用 evm_mine 让链上时间追上系统时间
+        if time_diff < -30:
+            # evm_mine 不带参数会使用当前系统时间作为新区块时间戳
+            self.w3.provider.make_request("evm_mine", [])
+            new_chain_time = self.w3.eth.get_block('latest').timestamp
+            new_diff = new_chain_time - system_time
+            print(f"[TIME_SYNC] 交易前同步: 链上{chain_time} -> {new_chain_time} (误差{new_diff}秒)")
 
     def _deploy_contract(self, artifact: dict) -> None:
         """在测试链上部署合约"""
@@ -137,9 +163,8 @@ class CrowdfundingService:
         
         bytecode = artifact.get("bytecode", "")
         if not bytecode:
-            # 从 Hardhat artifacts 获取 bytecode
-            bytecode = artifact.get("bytecode", "")
-        
+            raise RuntimeError("artifact 中缺少 bytecode 字段，无法部署合约")
+
         Crowdfunding = self.w3.eth.contract(abi=artifact["abi"], bytecode=bytecode)
         tx_hash = Crowdfunding.constructor().transact({"from": deployer})
         tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -212,7 +237,8 @@ class CrowdfundingService:
             )
 
         deadline = _to_int(data[5])
-        now = int(datetime.now(tz=timezone.utc).timestamp())
+        # 使用链上时间计算剩余时间，确保与合约时间一致
+        chain_time = self.w3.eth.get_block('latest').timestamp
 
         return ProjectSnapshot(
             id=_to_int(data[0]),
@@ -239,7 +265,7 @@ class CrowdfundingService:
             hasMonthlySupport=bool(data[15]),
             stageCount=_to_int(data[16]),
             rewardCount=_to_int(data[17]),
-            timeLeftSeconds=max(0, deadline - now),
+            timeLeftSeconds=max(0, deadline - chain_time),
             donors=donor_rows,
             stages=stages,
             rewards=rewards,
@@ -262,10 +288,11 @@ class CrowdfundingService:
         
         if has_expired:
             try:
+                # 只用 evm_mine 出块，让链上时间自然跟随系统时间
                 chain_time = self.w3.eth.get_block('latest').timestamp
                 system_time = int(datetime.now(tz=timezone.utc).timestamp())
-                if system_time > chain_time:
-                    self.w3.provider.make_request("evm_increaseTime", [system_time - chain_time])
+                if system_time > chain_time + 30:
+                    # 链上时间落后系统时间超过30秒，调用 evm_mine 追上
                     self.w3.provider.make_request("evm_mine", [])
                 self._transact(self.contract.functions.checkAndFinishExpired(), self.accounts[0])
             except Exception as e:
@@ -316,7 +343,7 @@ class CrowdfundingService:
     def _transact(self, function_call: Any, sender: str, value_wei: int = 0) -> str:
         self._ensure_initialized()
         self.ensure_ready()
-        self._sync_chain_time()
+        self._ensure_chain_time_updated()
         sender = Web3.to_checksum_address(sender)
         tx_options: dict[str, Any] = {"from": sender}
         if value_wei > 0:

@@ -1,6 +1,7 @@
 """
 区块链众筹系统 - FastAPI 应用
 """
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -201,10 +202,8 @@ async def refund(project_id: int, payload: dict):
         donation = next((d for d in project.donors if d["address"].lower() == from_address.lower()), None)
         if not donation:
             raise HTTPException(status_code=404, detail="未找到捐赠记录")
-        
-        refund_amount = donation.get("amount", 0)
-        
-        # 执行退款
+
+        # 执行退款（退款金额由合约根据捐赠者比例计算，无需在此读取）
         result = service.refund(project_id, from_address)
         return result
     except HTTPException:
@@ -466,5 +465,50 @@ async def contract_info():
     except Exception as e:
         print(f"获取合约信息失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+async def _time_sync_task():
+    """定时同步链上时间与系统时间（每30秒执行一次）
+    
+    同步策略（基于Hardhat节点特性）：
+    - Hardhat不支持设置比当前区块更早的时间戳（无法回拨时间）
+    - 但 evm_mine 不带参数时会自动使用 max(上一区块+1, 系统时间) 作为新区块时间戳
+    - 因此：只用 evm_mine 出块，链上时间会自然跟随系统时间前进
+    - 如果链上时间落后系统时间：调用 evm_mine 即可追上
+    - 如果链上时间超前系统时间：无法调整，需通过预防措施避免
+    - 关键预防：绝不用 evm_increaseTime 调快时间
+    - 目标：保证链上时间与系统时间误差不超过1分钟
+    """
+    while True:
+        try:
+            service._ensure_initialized()
+            if service.ready and service.w3:
+                chain_time = service.w3.eth.get_block('latest').timestamp
+                system_time = int(datetime.now(tz=timezone.utc).timestamp())
+                time_diff = chain_time - system_time  # 正数=链上超前，负数=链上落后
+                
+                # 链上时间落后系统时间超过30秒，调用 evm_mine 让链上时间追上系统时间
+                if time_diff < -30:
+                    # evm_mine 不带参数会使用当前系统时间作为新区块时间戳
+                    service.w3.provider.make_request("evm_mine", [])
+                    new_chain_time = service.w3.eth.get_block('latest').timestamp
+                    new_diff = new_chain_time - system_time
+                    print(f"[TIME_SYNC] 前调: 链上{chain_time} -> {new_chain_time} (误差{new_diff}秒)")
+                # 链上时间超前系统时间：Hardhat无法回拨，只能等待系统时间追上
+                elif time_diff > 60:
+                    print(f"[TIME_SYNC] 警告：链上超前{time_diff}秒，Hardhat无法回拨，等待系统时间追上")
+                # 误差在30秒内，正常状态
+            else:
+                print("[TIME_SYNC] 服务未就绪，等待下次同步")
+            
+            await asyncio.sleep(30)
+        except Exception as e:
+            print(f"[TIME_SYNC] 同步失败: {e}")
+            await asyncio.sleep(30)
+
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时启动定时任务"""
+    asyncio.create_task(_time_sync_task())
+    print("定时时间同步任务已启动")
 
 print("应用初始化完成")

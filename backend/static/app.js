@@ -627,16 +627,30 @@ function populateAccounts(selectId) {
   }
 }
 
+function getDisplayPledged(project) {
+  if (project.status === "Successful" && project.rewardCount === 0 && project.pledgedEth > project.goalEth) {
+    return project.goalEth;
+  }
+  return project.pledgedEth;
+}
+
 function renderProjectCard(project, showActions = true) {
   // 处理捐赠者标签
-  const donors = project.donors.map(donor => {
+  const donors = (project.donors || []).map(donor => {
     const tags = [];
     if (donor.earlySupporter) tags.push('<em class="reward-tag early">天使投资</em>');
     if (donor.monthlySupporter) tags.push('<em class="reward-tag monthly">月度会员</em>');
+    
+    let displayAmount = donor.donationEth;
+    if (project.status === "Successful" && project.rewardCount === 0 && project.pledgedEth > project.goalEth) {
+      const refundRatio = (project.pledgedEth - project.goalEth) / project.pledgedEth;
+      displayAmount = donor.donationEth * (1 - refundRatio);
+    }
+    
     return `
     <li>
       <span>${getAddressDisplay(donor.address)}</span>
-      <strong>${formatEth(donor.donationEth)} ETH</strong>
+      <strong>${formatEth(displayAmount)} ETH</strong>
       ${tags.length > 0 ? tags.join(' ') : ''}
     </li>
   `}).join("");
@@ -714,9 +728,9 @@ function renderProjectCard(project, showActions = true) {
       <p class="project-desc">${project.description}</p>
       <div class="stats">
         <div><span>目标</span><strong>${formatEth(project.goalEth)} ETH</strong></div>
-        <div><span>已筹</span><strong>${formatEth(project.pledgedEth)} ETH</strong></div>
+        <div><span>已筹</span><strong>${formatEth(getDisplayPledged(project))} ETH</strong></div>
         <div><span>剩余</span><strong>${formatDeadline(project.timeLeftSeconds)}</strong></div>
-        <div><span>进度</span><strong>${project.goalEth > 0 ? Math.min(100, Math.round(project.pledgedEth / project.goalEth * 100)) : 0}%</strong></div>
+        <div><span>进度</span><strong>${project.goalEth > 0 ? Math.min(100, Math.round(getDisplayPledged(project) / project.goalEth * 100)) : 0}%</strong></div>
       </div>
       ${actions}
       <div class="project-details">
@@ -744,20 +758,32 @@ async function initHomePage() {
   const ready = await initCommon();
   if (!ready) return;
 
-  document.getElementById("rpcUrl").textContent = state.bootstrap.rpcUrl?.includes("tester") ? "Python 测试链" : "外部链";
-  document.getElementById("contractAddress").textContent = formatAddress(state.bootstrap.contractAddress);
-  document.getElementById("accountCount").textContent = `${state.bootstrap.accounts?.length || 0} 个`;
-  document.getElementById("projectCount").textContent = `${state.projects.length} 个`;
+  const rpcUrlEl = document.getElementById("rpcUrl");
+  if (rpcUrlEl) rpcUrlEl.textContent = state.bootstrap.rpcUrl?.includes("tester") ? "Python 测试链" : "外部链";
   
-  document.getElementById("statusChip").textContent = state.bootstrap.ready ? "就绪" : "等待";
-  document.getElementById("statusChip").className = state.bootstrap.ready ? "status-chip ready" : "status-chip waiting";
+  const contractAddressEl = document.getElementById("contractAddress");
+  if (contractAddressEl) contractAddressEl.textContent = formatAddress(state.bootstrap.contractAddress);
+  
+  const accountCountEl = document.getElementById("accountCount");
+  if (accountCountEl) accountCountEl.textContent = `${state.bootstrap.accounts?.length || 0} 个`;
+  
+  const projectCountEl = document.getElementById("projectCount");
+  if (projectCountEl) projectCountEl.textContent = `${state.projects.length} 个`;
+  
+  const statusChipEl = document.getElementById("statusChip");
+  if (statusChipEl) {
+    statusChipEl.textContent = state.bootstrap.ready ? "就绪" : "等待";
+    statusChipEl.className = state.bootstrap.ready ? "status-chip ready" : "status-chip waiting";
+  }
 
-  const recentProjects = state.projects.slice(-3).reverse();
   const container = document.getElementById("recentProjects");
-  if (recentProjects.length === 0) {
-    container.innerHTML = `<div class="empty-state">暂无项目，<a href="/create">创建第一个项目</a></div>`;
-  } else {
-    container.innerHTML = recentProjects.map(p => renderProjectCard(p, false)).join("");
+  if (container) {
+    const recentProjects = state.projects.slice(-3).reverse();
+    if (recentProjects.length === 0) {
+      container.innerHTML = `<div class="empty-state">暂无项目，<a href="/create">创建第一个项目</a></div>`;
+    } else {
+      container.innerHTML = recentProjects.map(p => renderProjectCard(p, false)).join("");
+    }
   }
 }
 
@@ -765,6 +791,7 @@ async function initProjectsPage() {
   const ready = await initCommon();
   if (!ready) return;
 
+  state.projects = await apiProjects();
   renderProjectsList();
 
   document.getElementById("refreshBtn").addEventListener("click", async () => {
@@ -799,6 +826,28 @@ async function initProjectsPage() {
     
     try {
       const amountWei = state.web3.utils.toWei(amountEth.toString(), 'ether');
+      
+      // 捐赠前检查链上时间是否已超过截止时间
+      const project = state.projects.find(p => p.id === projectId);
+      if (project) {
+        const chainBlock = await state.web3.eth.getBlock('latest');
+        const chainTimestamp = chainBlock.timestamp;
+        const deadline = parseInt(project.deadline);
+        
+        console.log(`捐赠前检查 - 链上时间: ${chainTimestamp}, 截止时间: ${deadline}, 差值: ${deadline - chainTimestamp}秒`);
+        
+        if (chainTimestamp >= deadline) {
+          alert(`项目已在链上过期！链上时间: ${new Date(chainTimestamp * 1000).toLocaleString()}, 截止时间: ${new Date(deadline * 1000).toLocaleString()}`);
+          return;
+        }
+        
+        // 检查项目状态是否仍然活跃
+        const projectInfo = await state.contract.methods.getProject(projectId).call();
+        if (projectInfo.status !== '0') { // 0 = Active
+          alert(`项目状态已变更: ${projectInfo.status === '1' ? '已完成' : '已失败'}`);
+          return;
+        }
+      }
       
       // 普通捐赠
       const result = await state.contract.methods.donate(projectId).send({
@@ -837,6 +886,8 @@ async function initProjectsPage() {
 
 function renderProjectsList() {
   const container = document.getElementById("projectsContainer");
+  if (!container) return;
+  
   const filterSelect = document.getElementById("statusFilter");
   const filter = filterSelect ? filterSelect.value : "all";
   
@@ -849,7 +900,7 @@ function renderProjectsList() {
     container.innerHTML = `<div class="empty-state">暂无${filter === "all" ? "" : statusBadge(filter)}项目</div>`;
     return;
   }
-
+  
   container.innerHTML = filtered.map(p => renderProjectCard(p)).join("");
 }
 
@@ -941,26 +992,37 @@ async function initCreatePage() {
       }
       
       // 调用合约创建项目
+      // 使用链上时间计算截止时间，确保与合约时间一致
+      const chainBlock = await state.web3.eth.getBlock('latest');
+      const chainTimestamp = chainBlock.timestamp;
+      
       // datetime-local 的值格式为 "YYYY-MM-DDTHH:mm"，需要加上秒数 ":00" 确保正确解析为本地时间
       const deadlineValue = form.deadline.value + ":00";
       const deadlineDate = new Date(deadlineValue);
       const deadlineTimestamp = Math.floor(deadlineDate.getTime() / 1000);
       
-      console.log("选择的截止时间(本地):", deadlineValue, "-> UTC时间戳:", deadlineTimestamp);
-      
-      const chainBlock = await state.web3.eth.getBlock('latest');
-      const chainTimestamp = chainBlock.timestamp;
-      console.log("链上当前时间戳:", chainTimestamp);
-      
+      // 计算用户期望的剩余时间（秒）
       const systemTimestamp = Math.floor(Date.now() / 1000);
-      const chainSystemDiff = chainTimestamp - systemTimestamp;
-      console.log("链上时间与系统时间差异:", chainSystemDiff, "秒");
+      const expectedSeconds = deadlineTimestamp - systemTimestamp;
       
-      let actualDeadline = deadlineTimestamp;
-      if (chainSystemDiff > 0 && deadlineTimestamp <= chainTimestamp) {
-        actualDeadline = deadlineTimestamp + chainSystemDiff + 60;
-        console.log(`链上时间比系统时间快 ${chainSystemDiff} 秒，自动调整截止时间: ${deadlineTimestamp} -> ${actualDeadline}`);
+      console.log("=== 时间同步调试 ===");
+      console.log("链上当前时间戳:", chainTimestamp);
+      console.log("系统当前时间戳:", systemTimestamp);
+      console.log("用户选择的截止时间戳:", deadlineTimestamp);
+      console.log("用户期望的剩余时间:", Math.floor(expectedSeconds / 60), "分钟");
+      
+      // 使用链上时间 + 用户期望的剩余时间 = 实际截止时间
+      let actualDeadline = chainTimestamp + expectedSeconds;
+      
+      // 确保截止时间至少比链上时间晚1分钟（最小有效时间）
+      if (actualDeadline <= chainTimestamp) {
+        actualDeadline = chainTimestamp + 60;
       }
+      
+      console.log(`最终截止时间: ${actualDeadline} (链上时间+${Math.floor(actualDeadline - chainTimestamp)}秒)`);
+      
+      const finalDiff = actualDeadline - chainTimestamp;
+      console.log(`最终截止时间与链上时间差: ${finalDiff}秒 (${Math.floor(finalDiff/60)}分钟)`);
       
       const result = await state.contract.methods.createProject(
         form.name.value,
